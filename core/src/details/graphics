@@ -1,0 +1,94 @@
+# Core / Graphics – Visão Direcional
+
+Este documento resume responsabilidades e separação de módulos dentro de `core/src/graphics` para orientar evolução e evitar acoplamento excessivo.
+
+## Camadas
+
+1. resources/
+   - Guarda dados lógicos (Mesh, Material, Texture, ShaderDesc, Uniform structs).
+   - Não possui tipos de backend (sem wgpu::* aqui).
+   - Fluxo: Loader lê arquivo → cria struct → backend faz upload.
+
+2. backend/
+   - Implementação específica (atual: wgpu).
+   - Responsável por: device/queue, upload (mesh/texture), criação de bind groups, pipeline cache, execução do frame.
+   - Não expõe diretamente objetos internos fora da camada pública (reexport controlado via graphics/mod.rs).
+
+3. render/
+   - Organiza o ato de desenhar: DrawItem (mesh + material + transform), Pass lógico, Framegraph (dependências).
+   - Faz agrupamento e ordenação antes de entregar ao backend.
+
+4. scene/
+   - Estado lógico da cena (Camera, Light futura).
+   - Converte parâmetros de alto nível em uniforms (view_proj etc.).
+
+5. types/
+   - Tipos utilitários (Color, IDs fortes, wrappers matemáticos).
+   - Objetivo: reduzir uso direto de tipos primitivos sem semântica.
+
+6. utils/
+   - Suporte (staging, profiler).
+   - Nada crítico: pode ser substituído sem impactar API.
+
+7. shaders/
+   - WGSL fonte. Mantidos como assets (não misturar com código Rust).
+   - Carregados pelo Loader / backend ao criar ShaderModule.
+
+8. compatibility/
+   - Zona de transição para código legado (gg). Deve esvaziar e ser removida.
+
+## Fluxo de Frame (2D/3D genérico)
+
+Loader → Resources (MeshData/TextureData/ShaderDesc) → Backend Upload (Buffers/Textures) → Scene produz DrawItems → Render organiza Passes → Backend Renderer cria CommandEncoder + RenderPass → Draw (set_pipeline, set_bind_group, set_vertex/index, draw) → Queue.submit → Present.
+
+## Objetivos de Design
+
+- Separação clara dados vs implementação (facilita multi-backend futuro).
+- Evitar recriação de pipelines por frame (pipeline_cache).
+- Uniforms centralizados com alinhamento correto (uniform.rs).
+- DrawItem como unidade mínima para batching.
+- Framegraph opcional para ampliar (shadow pass, post-process) sem reescrever renderer.
+
+## Evoluções Planejadas
+
+- Instancing: adicionar InstanceBuffer + alterar DrawItem para suportar lote.
+- Material avançado: múltiplas texturas, parâmetros numéricos.
+- Light / global uniforms: bloco agregado (time, resolution, lights).
+- Profiler: contagem de draw calls, tempo de cada pass.
+- Asset pipeline: loader para formatos (PNG, GLTF, OBJ).
+
+## Boas Práticas
+
+- Criar pipelines apenas na inicialização ou quando um Shader/Material novo entra.
+- Reaproveitar BindGroupLayouts (câmera / material / textura).
+- Minimizar `queue.write_buffer` (agrupar em staging quando frequente).
+- Preferir `Mesh` imutável depois do upload; alterações criam nova instância.
+- Módulos pequenos e focados (ex.: mesh_upload só faz upload).
+
+## Erros Comuns Evitados
+
+- Misturar wgpu::* dentro de resources/ (quebra portabilidade).
+- Criar RenderPass fora do escopo imediato (lifetimes problemáticos).
+- Recompilar shader ou pipeline a cada frame (queda severa de FPS).
+- Colocar lógica de cena dentro de backend (acoplamento excessivo).
+
+## Glossário Rápido
+
+Mesh: vértices + índices.  
+Material: referência lógica a shaders + parâmetros.  
+Uniform: bloco de dados constante acessado pelo shader.  
+BindGroup/Layout: contrato + conexão de recursos no shader.  
+RenderPass: bloco de comandos que escreve em attachments.  
+Pipeline: combinação imutável de shaders + estado fixo.  
+DrawItem: instância pronta para envio (mesh/material/transform).  
+Framegraph: descrição de passes e dependências.  
+
+## Próximos Passos Sugeridos
+
+1. Migrar CameraUniform para resources/uniform.rs.
+2. Preencher mesh_upload.rs com função create_mesh(device, &MeshData).
+3. Implementar pipeline_cache.rs (hash do descriptor).
+4. Integrar DrawItem + render::renderer trait para backend submeter.
+5. Remover código legado restante em compatibility/.
+
+(Fim)

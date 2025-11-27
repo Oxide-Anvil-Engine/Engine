@@ -1,0 +1,69 @@
+# CameraUniform – Organização e Passos
+
+Objetivo: separar dados (CPU), cálculo de matriz e binding (GPU) para portabilidade.
+
+Camadas:
+1. resources/uniform_blocks.rs
+   - Define struct POD (repr(C), bytemuck::Pod + Zeroable):
+     #[repr(C)]
+     pub struct CameraUniform { pub view_proj: [[f32;4];4] }
+2. scene/camera.rs
+   - Mantém posição, direção, fov, near/far.
+   - Método fn build_uniform(&self) -> CameraUniform que gera view * proj.
+3. backend/wgpu/camera.rs
+   - CameraGpu { buffer: wgpu::Buffer, bind_group: wgpu::BindGroup }
+   - fn create_camera_gpu(device, layout) -> CameraGpu
+   - fn update(&self, queue, &CameraUniform) → queue.write_buffer(...)
+4. backend/wgpu/bind.rs
+   - Define BindGroupLayout para câmera (binding 0: uniform buffer).
+5. backend/wgpu/renderer.rs
+   - Em begin_frame: garantir update da câmera (camera_gpu.update).
+   - Em cada pass: pass.set_bind_group(0, &camera_gpu.bind_group, &[]).
+
+Fluxo por frame:
+- scene::Camera atualiza parâmetros.
+- camera.build_uniform() → CameraUniform.
+- backend.camera_gpu.update(queue, &uniform).
+- RenderPass: set_bind_group(0, camera).
+- Draw calls.
+
+Passos de implementação:
+1. Unificar: mover CameraUniform para resources/uniform_blocks.rs e remover camera_uniform.rs duplicado.
+2. Garantir #[repr(C)] + derive Pod/Zeroable.
+3. Adicionar build_uniform() em scene/camera.rs.
+4. Criar backend/wgpu/camera.rs com struct CameraGpu e funções create/update.
+5. Adicionar bind layout em bind.rs (camera_layout()).
+6. Na inicialização do backend: criar CameraGpu.
+7. No renderer: antes de iniciar render pass, chamar camera_gpu.update(...).
+8. Remover qualquer uso direto de wgpu::Buffer em camadas resources/ ou scene/.
+9. Teste: log size_of::<CameraUniform>() == 64 bytes.
+
+Exemplo rápido (trechos):
+
+resources/uniform_blocks.rs:
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraUniform { pub view_proj: [[f32;4];4] }
+
+scene/camera.rs:
+impl Camera {
+  pub fn build_uniform(&self) -> CameraUniform {
+    CameraUniform { view_proj: matrix_mul(self.proj(), self.view()) }
+  }
+}
+
+backend/wgpu/camera.rs:
+pub struct CameraGpu { pub buffer: wgpu::Buffer, pub bind_group: wgpu::BindGroup }
+pub fn create(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Self { ... }
+pub fn update(&self, queue: &wgpu::Queue, cam: &CameraUniform) { queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(cam)); }
+
+renderer.rs (wgpu):
+let cu = camera.build_uniform();
+camera_gpu.update(&self.queue, &cu);
+pass.set_bind_group(0, &camera_gpu.bind_group, &[]);
+
+Validação:
+- grep -R "CameraUniform" assegura que só aparece em resources/, scene/, backend/wgpu/camera.rs.
+- Nenhum wgpu::* em resources/ ou scene/.
+
+Fim.
