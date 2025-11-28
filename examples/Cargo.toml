@@ -1,7 +1,11 @@
 [package]
 name = "examples"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "pingpong"
+path = "src/bin/pingpong.rs"
 
 [dependencies]
-core = { path = "../core" }
+engine_core = { path = "../engine_core" }

@@ -1,8 +1,8 @@
 # Conteúdo do Engine/Cargo.toml
 [workspace]
 members = [
-    "core",
-    "editor",
+    "engine_core",
+    "graphics",
     "examples",
 ]
 resolver = "2"

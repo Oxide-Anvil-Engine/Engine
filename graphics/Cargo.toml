@@ -1,0 +1,12 @@
+# core/graphics/Cargo.toml
+[package]
+name = "graphics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "27.0.1"
+winit = "0.30.12"
+bytemuck = { version = "1.24.0", features = ["derive"] }
+pollster = "0.4.0"
+cgmath = "0.18.0"
